@@ -104,16 +104,18 @@ def trim_discord(name: str, limit: int = NICK_LIMIT) -> str:
 
 
 def strip_markers(name: str, suffixes: list[str]) -> str:
-    name = normalize(name)
-    markers = [suffix.strip() for suffix in suffixes if suffix.strip()]
+    markers = [normalize(suffix.strip()) for suffix in suffixes if suffix.strip()]
     for emoji in LEGACY_EMOJIS:
-        if emoji not in markers:
-            markers.append(emoji)
+        marker = normalize(emoji)
+        if marker not in markers:
+            markers.append(marker)
     markers.sort(key=len, reverse=True)
+    prefixes = sorted((normalize(prefix) for prefix in LEGACY_PREFIXES), key=len, reverse=True)
     changed = True
     while changed:
         changed = False
-        for prefix in sorted(LEGACY_PREFIXES, key=len, reverse=True):
+        name = normalize(name)
+        for prefix in prefixes:
             if name.startswith(prefix):
                 name = name[len(prefix) :]
                 changed = True
@@ -123,10 +125,10 @@ def strip_markers(name: str, suffixes: list[str]) -> str:
         stripped = name.rstrip()
         for marker in markers:
             if stripped.endswith(marker):
-                name = stripped[: -len(marker)]
+                name = stripped[: -len(marker)].rstrip()
                 changed = True
                 break
-    return name
+    return name.rstrip()
 
 
 def matching_suffix(member: discord.Member, role_suffixes: dict[int, str]) -> str | None:
@@ -149,11 +151,10 @@ def desired_nick(member: discord.Member, suffix: str | None, suffixes: list[str]
         base = member.name
     if suffix is None:
         return trim_discord(base)
-    marker = normalize(suffix)
-    room = NICK_LIMIT - discord_len(marker)
+    room = NICK_LIMIT - discord_len(suffix)
     if room < 1:
-        return trim_discord(marker)
-    return f"{trim_discord(base, room)}{marker}"
+        return trim_discord(suffix)
+    return f"{trim_discord(base, room)}{suffix}"
 
 
 class NicknameBot(discord.Client):
@@ -197,7 +198,7 @@ class NicknameBot(discord.Client):
             return
         suffix = matching_suffix(member, self.role_suffixes)
         desired = desired_nick(member, suffix, self.suffixes)
-        if normalize(member.nick or "") == normalize(desired or ""):
+        if member.nick == desired:
             return
         try:
             await member.edit(nick=desired, reason="Rollen-Suffix")

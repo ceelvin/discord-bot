@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 import discord
@@ -38,6 +39,7 @@ def setup_logging() -> None:
 
 
 LEGACY_PREFIXES = ("[TANK] ", "[HEAL] ", "[DPS] ")
+LEGACY_EMOJIS = ("💚",)
 
 
 def load_config(path: Path) -> tuple[dict[int, str], list[str]]:
@@ -81,7 +83,33 @@ def load_config(path: Path) -> tuple[dict[int, str], list[str]]:
     return role_suffixes, suffixes
 
 
+def normalize(name: str) -> str:
+    return unicodedata.normalize("NFC", name).replace("\ufe0f", "").replace("\ufe0e", "")
+
+
+def discord_len(name: str) -> int:
+    return len(name.encode("utf-16-le")) // 2
+
+
+def trim_discord(name: str, limit: int = NICK_LIMIT) -> str:
+    units = 0
+    out: list[str] = []
+    for char in name:
+        size = discord_len(char)
+        if units + size > limit:
+            break
+        out.append(char)
+        units += size
+    return "".join(out).rstrip()
+
+
 def strip_markers(name: str, suffixes: list[str]) -> str:
+    name = normalize(name)
+    markers = [suffix.strip() for suffix in suffixes if suffix.strip()]
+    for emoji in LEGACY_EMOJIS:
+        if emoji not in markers:
+            markers.append(emoji)
+    markers.sort(key=len, reverse=True)
     changed = True
     while changed:
         changed = False
@@ -92,9 +120,10 @@ def strip_markers(name: str, suffixes: list[str]) -> str:
                 break
         if changed:
             continue
-        for suffix in suffixes:
-            if name.endswith(suffix):
-                name = name[: -len(suffix)]
+        stripped = name.rstrip()
+        for marker in markers:
+            if stripped.endswith(marker):
+                name = stripped[: -len(marker)]
                 changed = True
                 break
     return name
@@ -119,11 +148,12 @@ def desired_nick(member: discord.Member, suffix: str | None, suffixes: list[str]
     if base == "":
         base = member.name
     if suffix is None:
-        return base[:NICK_LIMIT]
-    room = NICK_LIMIT - len(suffix)
+        return trim_discord(base)
+    marker = normalize(suffix)
+    room = NICK_LIMIT - discord_len(marker)
     if room < 1:
-        return suffix[:NICK_LIMIT]
-    return f"{base[:room].rstrip()}{suffix}"
+        return trim_discord(marker)
+    return f"{trim_discord(base, room)}{marker}"
 
 
 class NicknameBot(discord.Client):
@@ -167,7 +197,7 @@ class NicknameBot(discord.Client):
             return
         suffix = matching_suffix(member, self.role_suffixes)
         desired = desired_nick(member, suffix, self.suffixes)
-        if desired == member.nick:
+        if normalize(member.nick or "") == normalize(desired or ""):
             return
         try:
             await member.edit(nick=desired, reason="Rollen-Suffix")

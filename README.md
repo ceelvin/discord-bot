@@ -33,4 +33,4 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-`config.json` liegt im Image. Nach Änderungen daran erneut `docker compose up -d --build`.
+`config.json` ist in den Container gemountet. Nach Änderungen daran reicht `docker compose restart`.
